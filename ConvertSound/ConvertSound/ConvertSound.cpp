@@ -115,9 +115,8 @@ static int rewrite_header(FILE* outfile, unsigned char* headbuf, unsigned int wr
     return 0;
 }
 
-int main(int argc, char** argv)
+static int convert_sound(const char* filename)
 {
-    const char* filename;
     const AVCodec* codec;
     AVCodecContext* c = NULL;
     int ret;
@@ -128,13 +127,6 @@ int main(int argc, char** argv)
     AVPacket* pkt;
     AVFrame* decoded_frame = NULL;
     static struct SwrContext* swr_ctx;
-
-    if (argc <= 1) {
-        fprintf(stderr, "Usage: %s <input file>\n", argv[0]);
-        exit(0);
-    }
-
-    filename = argv[1];
 
     pkt = av_packet_alloc();
 
@@ -169,25 +161,25 @@ int main(int argc, char** argv)
     codec = avcodec_find_decoder(params->codec_id);
     if (!codec) {
         fprintf(stderr, "Codec not found\n");
-        exit(1);
+        return -1;
     }
 
     c = avcodec_alloc_context3(codec);
     if (!c) {
         fprintf(stderr, "Could not allocate audio codec context\n");
-        exit(1);
+        return -1;
     }
 
     if (avcodec_open2(c, codec, NULL) < 0) {
         fprintf(stderr, "Could not open codec\n");
-        exit(1);
+        return -1;
     }
 
     swr_ctx = swr_alloc();
 
     if (!swr_ctx) {
         fprintf(stderr, "Could not allocate resampler context\n");
-        exit(1);
+        return -1;
     }
 
     av_opt_set_int(swr_ctx, "in_channel_layout", params->channel_layout, 0);
@@ -205,7 +197,7 @@ int main(int argc, char** argv)
     if (decoded_frame == NULL) {
         fprintf(stderr, "Could not allocate frame\n");
         ret = AVERROR(ENOMEM);
-        exit(1);
+        return -1;
     }
 
     av_init_packet(pkt);
@@ -218,13 +210,13 @@ int main(int argc, char** argv)
     fopen_s(&f, filename, "rb");
     if (!f) {
         fprintf(stderr, "Could not open %s\n", filename);
-        exit(1);
+        return -1;
     }
 
     fopen_s(&outfile, "result.wav", "wb");
     if (!outfile) {
         av_free(c);
-        exit(1);
+        return -1;
     }
 
     unsigned char headbuf[44];
@@ -255,13 +247,18 @@ int main(int argc, char** argv)
     return 0;
 }
 
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
+int main(int argc, char** argv)
+{
+    const char* filename;
 
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
+    if (argc <= 1) {
+        fprintf(stderr, "Usage: %s <input file>\n", argv[0]);
+        exit(0);
+    }
+
+    filename = argv[1];
+
+    convert_sound(filename);
+
+    return 0;
+}
