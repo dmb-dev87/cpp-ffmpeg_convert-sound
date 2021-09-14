@@ -113,12 +113,12 @@ static int RewriteHeader(FILE* outfile, unsigned char* headbuf, unsigned int wri
     return 0;
 }
 
-EXPORT int ConvertSound(char* filename)
+EXPORT int ConvertSound(char* inputname, char* outputname)
 {
     const AVCodec* codec;
     AVCodecContext* c = NULL;
     int ret;
-    FILE* f, * outfile;
+    FILE* infile, * outfile;
     uint8_t inbuf[AUDIO_INBUF_SIZE + AV_INPUT_BUFFER_PADDING_SIZE];
     uint8_t* data;
     size_t data_size;
@@ -130,14 +130,14 @@ EXPORT int ConvertSound(char* filename)
 
     AVFormatContext* format = avformat_alloc_context();
 
-    int res = avformat_open_input(&format, filename, NULL, NULL);
+    int res = avformat_open_input(&format, inputname, NULL, NULL);
     if (res != 0) {
         char error[256];
-        fprintf(stderr, "Could not open file '%s'\n", filename);
+        fprintf(stderr, "Could not open file '%s'\n", inputname);
         return -1;
     }
     if (avformat_find_stream_info(format, NULL) < 0) {
-        fprintf(stderr, "Could not retrieve stream info from file '%s'\n", filename);
+        fprintf(stderr, "Could not retrieve stream info from file '%s'\n", inputname);
         return -1;
     }
 
@@ -149,7 +149,7 @@ EXPORT int ConvertSound(char* filename)
         }
     }
     if (stream_index == -1) {
-        fprintf(stderr, "Could not retrieve audio stream from file '%s'\n", filename);
+        fprintf(stderr, "Could not retrieve audio stream from file '%s'\n", inputname);
         return -1;
     }
 
@@ -189,7 +189,7 @@ EXPORT int ConvertSound(char* filename)
     av_opt_set_sample_fmt(swr_ctx, "out_sample_fmt", AV_SAMPLE_FMT_S16, 0);
     swr_init(swr_ctx);
 
-    av_dump_format(format, 0, filename, 0);
+    av_dump_format(format, 0, inputname, 0);
 
     decoded_frame = av_frame_alloc();
     if (decoded_frame == NULL) {
@@ -205,13 +205,13 @@ EXPORT int ConvertSound(char* filename)
 
     int pkt_i = 0;
 
-    fopen_s(&f, filename, "rb");
-    if (!f) {
-        fprintf(stderr, "Could not open %s\n", filename);
+    fopen_s(&infile, inputname, "rb");
+    if (!infile) {
+        fprintf(stderr, "Could not open %s\n", inputname);
         return -1;
     }
 
-    fopen_s(&outfile, "result.wav", "wb");
+    fopen_s(&outfile, outputname, "wb");
     if (!outfile) {
         av_free(c);
         return -1;
@@ -236,8 +236,8 @@ EXPORT int ConvertSound(char* filename)
 
     RewriteHeader(outfile, headbuf, sound_length);
 
+    fclose(infile);
     fclose(outfile);
-    fclose(f);
     avcodec_free_context(&c);
     av_frame_free(&decoded_frame);
     av_packet_free(&pkt);
