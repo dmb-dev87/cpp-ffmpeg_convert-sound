@@ -243,6 +243,7 @@ static int convert_sound(const char* filename)
     avcodec_free_context(&c);
     av_frame_free(&decoded_frame);
     av_packet_free(&pkt);
+    avformat_close_input(&format);
 
     return 0;
 }
