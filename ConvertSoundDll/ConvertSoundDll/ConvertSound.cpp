@@ -237,10 +237,11 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     RewriteHeader(outfile, headbuf, sound_length);
 
     fclose(infile);
-    fclose(outfile);
+    fclose(outfile);    
     avcodec_free_context(&c);
     av_frame_free(&decoded_frame);
     av_packet_free(&pkt);
+    avformat_close_input(&format);
 
     return 0;
 }
