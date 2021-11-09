@@ -117,7 +117,7 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
 {
     const AVCodec* codec;
     AVCodecContext* c = NULL;
-    int ret;
+    int ret, result = 0;
     FILE* infile, * outfile;
     uint8_t inbuf[AUDIO_INBUF_SIZE + AV_INPUT_BUFFER_PADDING_SIZE];
     uint8_t* data;
@@ -134,11 +134,11 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     if (res != 0) {
         char error[256];
         fprintf(stderr, "Could not open file '%s'\n", inputname);
-        return -1;
+        result = -1;
     }
     if (avformat_find_stream_info(format, NULL) < 0) {
         fprintf(stderr, "Could not retrieve stream info from file '%s'\n", inputname);
-        return -1;
+        result = -1;
     }
 
     int stream_index = -1;
@@ -150,7 +150,7 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     }
     if (stream_index == -1) {
         fprintf(stderr, "Could not retrieve audio stream from file '%s'\n", inputname);
-        return -1;
+        result = -1;
     }
 
     AVStream* audio_stream = format->streams[stream_index];
@@ -159,25 +159,25 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     codec = avcodec_find_decoder(params->codec_id);
     if (!codec) {
         fprintf(stderr, "Codec not found\n");
-        return -1;
+        result = -1;
     }
 
     c = avcodec_alloc_context3(codec);
     if (!c) {
         fprintf(stderr, "Could not allocate audio codec context\n");
-        return -1;
+        result = -1;
     }
 
     if (avcodec_open2(c, codec, NULL) < 0) {
         fprintf(stderr, "Could not open codec\n");
-        return -1;
+        result = -1;
     }
 
     swr_ctx = swr_alloc();
 
     if (!swr_ctx) {
         fprintf(stderr, "Could not allocate resampler context\n");
-        return -1;
+        result = -1;
     }
 
     av_opt_set_int(swr_ctx, "in_channel_layout", params->channel_layout, 0);
@@ -195,7 +195,7 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     if (decoded_frame == NULL) {
         fprintf(stderr, "Could not allocate frame\n");
         ret = AVERROR(ENOMEM);
-        return -1;
+        result = -1;
     }
 
     av_init_packet(pkt);
@@ -208,13 +208,13 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     fopen_s(&infile, inputname, "rb");
     if (!infile) {
         fprintf(stderr, "Could not open %s\n", inputname);
-        return -1;
+        result = -1;
     }
 
     fopen_s(&outfile, outputname, "wb");
     if (!outfile) {
         av_free(c);
-        return -1;
+        result = -1;
     }
 
     unsigned char headbuf[44];
@@ -243,5 +243,5 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     av_packet_free(&pkt);
     avformat_close_input(&format);
 
-    return 0;
+    return result;
 }
