@@ -84,8 +84,8 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>E:\05_work\H20210907_cpp-ffmpeg_convert-sound\ConvertSoundDll\ConvertSoundDll\FFmpeg\include;$(IncludePath)</IncludePath>
-    <LibraryPath>E:\05_work\H20210907_cpp-ffmpeg_convert-sound\ConvertSoundDll\ConvertSoundDll\FFmpeg\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>.\FFmpeg\include;$(IncludePath)</IncludePath>
+    <LibraryPath>.\FFmpeg\lib;$(LibraryPath)</LibraryPath>
     <TargetName>ConvertSound</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">

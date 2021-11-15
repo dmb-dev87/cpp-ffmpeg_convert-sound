@@ -24,7 +24,6 @@ extern "C" {
 
 static int decode_audio(AVCodecContext* dec_ctx, AVFrame* frame, AVPacket* pkt, SwrContext* swr_ctx, FILE* outfile)
 {
-    int i, ch;
     int ret, data_size;
     int dst_nb_samples = 0, dst_linesize;
     uint8_t** dst_data = NULL;
@@ -55,14 +54,14 @@ static int decode_audio(AVCodecContext* dec_ctx, AVFrame* frame, AVPacket* pkt, 
             ret = av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, 1, dst_nb_samples, AV_SAMPLE_FMT_S16, 0);
             ret = av_samples_alloc(dst_data, &dst_linesize, 1, dst_nb_samples, AV_SAMPLE_FMT_S16, 1);
         }
-        ret = swr_convert(swr_ctx, dst_data, dst_nb_samples, (const uint8_t**)frame->data, frame->nb_samples);
+        ret = swr_convert(swr_ctx, dst_data, dst_nb_samples, (const uint8_t**)frame->data, frame->nb_samples);        
 
         int dst_bufsize = av_samples_get_buffer_size(&dst_linesize, 1, ret, AV_SAMPLE_FMT_S16, 1);
-
         int size = fwrite(dst_data[0], 1, dst_bufsize, outfile);
-
         return size;
     }
+
+    return 0;
 }
 
 static int write_prelim_header(FILE* outfile, unsigned char* headbuf)
@@ -91,6 +90,8 @@ static int write_prelim_header(FILE* outfile, unsigned char* headbuf)
         fprintf(stderr, "ERROR: Failed to write wav header: \n");
         return -1;
     }
+
+    return 0;
 }
 
 static int rewrite_header(FILE* outfile, unsigned char* headbuf, unsigned int written)
@@ -122,8 +123,6 @@ static int convert_sound(const char* filename)
     int ret;
     FILE* f, * outfile;
     uint8_t inbuf[AUDIO_INBUF_SIZE + AV_INPUT_BUFFER_PADDING_SIZE];
-    uint8_t* data;
-    size_t data_size;
     AVPacket* pkt;
     AVFrame* decoded_frame = NULL;
     static struct SwrContext* swr_ctx;

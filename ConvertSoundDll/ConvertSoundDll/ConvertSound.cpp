@@ -20,9 +20,24 @@ extern "C" {
 #define WRITE_U16(buf, x) *(buf)     = (unsigned char)((x)&0xff);\
                           *((buf)+1) = (unsigned char)(((x)>>8)&0xff);
 
+typedef struct WAV_HEADER {
+    unsigned char chunkId[4];
+    uint32_t chunkSize;
+    unsigned char format[4];
+    unsigned char subchunk1Id[4];
+    uint32_t subchunk1Size;
+    uint16_t audioFormat;
+    uint16_t numChannels;
+    uint32_t sampleRate;
+    uint32_t byteRate;
+    uint16_t blockAlign;
+    uint16_t bitsPerSample;
+    unsigned char subchunk2Id[4];
+    uint32_t subchunk2Size;
+} WavHeader;
+
 static int DecodeAudio(AVCodecContext* dec_ctx, AVFrame* frame, AVPacket* pkt, SwrContext* swr_ctx, FILE* outfile)
 {
-    int i, ch;
     int ret, data_size;
     int dst_nb_samples = 0, dst_linesize;
     uint8_t** dst_data = NULL;
@@ -53,20 +68,20 @@ static int DecodeAudio(AVCodecContext* dec_ctx, AVFrame* frame, AVPacket* pkt, S
             ret = av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, 1, dst_nb_samples, AV_SAMPLE_FMT_S16, 0);
             ret = av_samples_alloc(dst_data, &dst_linesize, 1, dst_nb_samples, AV_SAMPLE_FMT_S16, 1);
         }
-        ret = swr_convert(swr_ctx, dst_data, dst_nb_samples, (const uint8_t**)frame->data, frame->nb_samples);
+        ret = swr_convert(swr_ctx, dst_data, dst_nb_samples, (const uint8_t**)frame->data, frame->nb_samples);        
 
         int dst_bufsize = av_samples_get_buffer_size(&dst_linesize, 1, ret, AV_SAMPLE_FMT_S16, 1);
-
         int size = fwrite(dst_data[0], 1, dst_bufsize, outfile);
-
         return size;
     }
+
+    return 0;
 }
 
 static int WritePrelimHeader(FILE* outfile, unsigned char* headbuf)
 {
-    int bytespersec = 2 * 8000 * 16 / 8;
-    int align = 2 * 16 / 8;
+    int bytespersec = 8000 * 16 / 8;
+    int align = 16 / 8;
     int samplesize = 16;
     unsigned int size = 0x7fffffff;
 
@@ -89,6 +104,8 @@ static int WritePrelimHeader(FILE* outfile, unsigned char* headbuf)
         fprintf(stderr, "ERROR: Failed to write wav header: \n");
         return -1;
     }
+
+    return 0;
 }
 
 static int RewriteHeader(FILE* outfile, unsigned char* headbuf, unsigned int written)
@@ -113,15 +130,124 @@ static int RewriteHeader(FILE* outfile, unsigned char* headbuf, unsigned int wri
     return 0;
 }
 
+EXPORT int ResampleWave(char* inputname, char* outputname)
+{
+    WavHeader wavHeader;
+    int headerSize = sizeof(WavHeader);
+
+    FILE* wavFile;
+    fopen_s(&wavFile, inputname, "r");
+    if (wavFile == nullptr)
+    {
+        fprintf(stderr, "Unable to open wave file: %s\n", inputname);
+        return -1;
+    }
+
+    fread(&wavHeader, 1, headerSize, wavFile);
+    fseek(wavFile, headerSize, SEEK_SET);
+
+    uint8_t* wav_data = (uint8_t*)malloc(sizeof(uint8_t) * wavHeader.subchunk2Size);
+    fread(wav_data, sizeof(uint8_t), wavHeader.subchunk2Size, wavFile); //read in our whole sound data chunk
+
+    fclose(wavFile);
+
+    uint8_t** src_data = NULL, ** dst_data = NULL;
+    int src_rate = wavHeader.sampleRate, dst_rate = 8000;
+    int src_nb_channels = wavHeader.numChannels, dst_nb_channels = 0;
+    int src_linesize, dst_linesize;
+    int64_t src_ch_layout = av_get_default_channel_layout(src_nb_channels), dst_ch_layout = AV_CH_LAYOUT_MONO;
+    enum AVSampleFormat src_sample_fmt = AV_SAMPLE_FMT_S16, dst_sample_fmt = AV_SAMPLE_FMT_S16;
+    int src_nb_samples, dst_nb_samples;
+    static struct SwrContext* swr_ctx;
+    int dst_bufsize;
+    int ret;
+
+    FILE* dstFile;
+
+    fopen_s(&dstFile, outputname, "wb");
+
+    if (!dstFile) {
+        fprintf(stderr, "Could not open destination file %s\n", outputname);
+        return -1;
+    }
+
+    uint16_t bytesPerSample = wavHeader.bitsPerSample / 8;
+    src_nb_samples = wavHeader.subchunk2Size / bytesPerSample;
+    src_ch_layout = av_get_default_channel_layout(src_nb_channels);
+
+    swr_ctx = swr_alloc();
+    if (!swr_ctx) {
+        fprintf(stderr, "Could not allocate resampler context\n");
+        ret = AVERROR(ENOMEM);
+        return -1;
+    }
+
+    av_opt_set_int(swr_ctx, "in_channel_layout", src_ch_layout, 0);
+    av_opt_set_int(swr_ctx, "in_sample_rate", src_rate, 0);
+    av_opt_set_sample_fmt(swr_ctx, "in_sample_fmt", src_sample_fmt, 0);
+
+    av_opt_set_int(swr_ctx, "out_channel_layout", dst_ch_layout, 0);
+    av_opt_set_int(swr_ctx, "out_sample_rate", dst_rate, 0);
+    av_opt_set_sample_fmt(swr_ctx, "out_sample_fmt", dst_sample_fmt, 0);
+    swr_init(swr_ctx);
+
+    unsigned char headbuf[44];
+    WritePrelimHeader(dstFile, headbuf);
+    unsigned int sound_length = 0;
+
+    ret = av_samples_alloc_array_and_samples(&src_data, &src_linesize, src_nb_channels, src_nb_samples, src_sample_fmt, 0);
+    if (ret < 0) {
+        fprintf(stderr, "Could not allocate source samples\n");
+        return -1;
+    }
+
+    src_data[0] = wav_data;
+
+    dst_nb_channels = av_get_channel_layout_nb_channels(dst_ch_layout);
+    dst_nb_samples = av_rescale_rnd(swr_get_delay(swr_ctx, src_rate) + src_nb_samples, dst_rate, src_rate, AV_ROUND_UP);
+
+    ret = av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, dst_nb_channels, dst_nb_samples, dst_sample_fmt, 0);
+    if (ret < 0) {
+        fprintf(stderr, "Could not allocate destinate samples\n");
+        return -1;
+    }
+
+    ret = swr_convert(swr_ctx, dst_data, dst_nb_samples, (const uint8_t**)src_data, src_nb_samples);
+    if (ret < 0) {
+        fprintf(stderr, "Error while converting\n");
+        return -1;
+    }
+
+    dst_bufsize = av_samples_get_buffer_size(&dst_linesize, dst_nb_channels, ret, dst_sample_fmt, 1);
+    if (dst_bufsize < 0) {
+        fprintf(stderr, "Could not get sample buffer size\n");
+        return -1;
+    }
+
+    sound_length += fwrite(dst_data[0], 1, dst_bufsize, dstFile);
+
+    RewriteHeader(dstFile, headbuf, sound_length);
+
+    fclose(dstFile);
+
+    if (src_data)
+        av_freep(&src_data);
+
+    if (dst_data)
+        av_freep(&dst_data);
+
+    swr_free(&swr_ctx);
+
+    return 1;
+}
+
 EXPORT int ConvertSound(char* inputname, char* outputname)
 {
     const AVCodec* codec;
     AVCodecContext* c = NULL;
-    int ret, result = 0;
+    int ret;
     FILE* infile, * outfile;
     uint8_t inbuf[AUDIO_INBUF_SIZE + AV_INPUT_BUFFER_PADDING_SIZE];
-    uint8_t* data;
-    size_t data_size;
     AVPacket* pkt;
     AVFrame* decoded_frame = NULL;
     static struct SwrContext* swr_ctx;
@@ -132,13 +258,12 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
 
     int res = avformat_open_input(&format, inputname, NULL, NULL);
     if (res != 0) {
-        char error[256];
         fprintf(stderr, "Could not open file '%s'\n", inputname);
-        result = -1;
+        return -1;
     }
     if (avformat_find_stream_info(format, NULL) < 0) {
         fprintf(stderr, "Could not retrieve stream info from file '%s'\n", inputname);
-        result = -1;
+        return -1;
     }
 
     int stream_index = -1;
@@ -150,7 +275,7 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     }
     if (stream_index == -1) {
         fprintf(stderr, "Could not retrieve audio stream from file '%s'\n", inputname);
-        result = -1;
+        return -1;
     }
 
     AVStream* audio_stream = format->streams[stream_index];
@@ -159,25 +284,25 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     codec = avcodec_find_decoder(params->codec_id);
     if (!codec) {
         fprintf(stderr, "Codec not found\n");
-        result = -1;
+        return -1;
     }
 
     c = avcodec_alloc_context3(codec);
     if (!c) {
         fprintf(stderr, "Could not allocate audio codec context\n");
-        result = -1;
+        return -1;
     }
 
     if (avcodec_open2(c, codec, NULL) < 0) {
         fprintf(stderr, "Could not open codec\n");
-        result = -1;
+        return -1;
     }
 
     swr_ctx = swr_alloc();
 
     if (!swr_ctx) {
         fprintf(stderr, "Could not allocate resampler context\n");
-        result = -1;
+        return -1;
     }
 
     av_opt_set_int(swr_ctx, "in_channel_layout", params->channel_layout, 0);
@@ -195,7 +320,7 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     if (decoded_frame == NULL) {
         fprintf(stderr, "Could not allocate frame\n");
         ret = AVERROR(ENOMEM);
-        result = -1;
+        return -1;
     }
 
     av_init_packet(pkt);
@@ -208,13 +333,13 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     fopen_s(&infile, inputname, "rb");
     if (!infile) {
         fprintf(stderr, "Could not open %s\n", inputname);
-        result = -1;
+        return -1;
     }
 
     fopen_s(&outfile, outputname, "wb");
     if (!outfile) {
         av_free(c);
-        result = -1;
+        return -1;
     }
 
     unsigned char headbuf[44];
@@ -243,5 +368,5 @@ EXPORT int ConvertSound(char* inputname, char* outputname)
     av_packet_free(&pkt);
     avformat_close_input(&format);
 
-    return result;
+    return 1;
 }
