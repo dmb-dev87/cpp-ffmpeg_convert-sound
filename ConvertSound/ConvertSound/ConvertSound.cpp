@@ -67,8 +67,8 @@ static int decode_audio(AVCodecContext* dec_ctx, AVFrame* frame, AVPacket* pkt, 
 
 static int write_prelim_header(FILE* outfile, unsigned char* headbuf)
 {
-    int bytespersec = 2 * 8000 * 16 / 8;
-    int align = 2 * 16 / 8;
+    int bytespersec = 8000 * 16 / 8;
+    int align = 16 / 8;
     int samplesize = 16;
     unsigned int size = 0x7fffffff;
 
@@ -132,9 +132,8 @@ static int convert_sound(const char* filename)
 
     AVFormatContext* format = avformat_alloc_context();
 
-    int res = avformat_open_input(&format, filename, NULL, NULL);
-    if (res != 0) {
-        char error[256];
+    ret = avformat_open_input(&format, filename, NULL, NULL);
+    if (ret != 0) {
         fprintf(stderr, "Could not open file '%s'\n", filename);
         return -1;
     }
